@@ -8,7 +8,15 @@ NZ↔local timezone offset, so NZ Monday 9am plays at *your* Monday 9am.
 > **Note**: all repo contents — code, player, diagram, this README — were
 > generated with Claude Fable 5.
 
-![System diagram](diagram.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagram-dark.png">
+  <img alt="System diagram" src="diagram.png">
+</picture>
+
+<!-- diagram source: diagram.svg — its font stack only renders correctly on
+     machines with an xkcd/comic font installed, so the README embeds
+     pre-rendered PNGs instead (see repo history for the render recipe) -->
+
 
 Key design points:
 
