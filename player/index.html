@@ -36,7 +36,6 @@
     padding: .7rem 2.2rem; cursor: pointer; background: #26221b; color: #f4f1ea;
   }
   button:disabled { opacity: .5; cursor: default; }
-  #vol { width: 70%; margin-top: 1.2rem; accent-color: currentColor; }
   #status { min-height: 1.4em; font-size: .85rem; margin-top: 1rem; }
   a { color: inherit; }
 </style>
@@ -49,8 +48,6 @@
   <div id="nztime">--:--</div>
   <div id="nzdate" class="dim"></div>
   <button id="btn" disabled>Loading&hellip;</button>
-  <br>
-  <input type="range" id="vol" min="0" max="1" step="0.01" value="1" aria-label="Volume">
   <div id="status" class="dim"></div>
   <p class="dim" id="delayinfo"></p>
   <p class="dim">the real thing, live: <a href="https://95bfm.com/" rel="noopener">95bfm.com</a></p>
@@ -272,7 +269,6 @@ $('btn').onclick = () => {
   audio.play().catch(() => {});
   playing ? stopPlayback() : startPlayback();
 };
-$('vol').oninput = e => { audio.volume = +e.target.value; };
 
 (async () => {
   tick();
