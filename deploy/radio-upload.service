@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync radio chunks to Cloudflare R2
+Wants=network-online.target
+After=network-online.target radio-capture.service
+
+[Service]
+Environment=ENV_FILE=/opt/radio-delay/.env
+ExecStart=/opt/radio-delay/upload/upload.sh
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

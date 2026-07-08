@@ -1,0 +1,18 @@
+[Unit]
+Description=95bFM stream capture (ffmpeg in podman)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+EnvironmentFile=/opt/radio-delay/.env
+ExecStartPre=-/usr/bin/podman rm -f radio-capture
+ExecStart=/usr/bin/podman run --rm --name radio-capture \
+    --env STREAM_URL --env CHUNK_SECONDS --env TZ=UTC \
+    --env CHUNK_DIR=/data/chunks \
+    -v /opt/radio-delay/data/chunks:/data/chunks \
+    localhost/radio-capture:latest
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

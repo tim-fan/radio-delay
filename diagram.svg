@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 370" font-size="15">
+  <style>
+    svg  { --ink: #1f1f1f; --accent: #d02f2f; }
+    @media (prefers-color-scheme: dark) {
+      svg { --ink: #e8e4dc; --accent: #ff6b5e; }
+    }
+    path, line { fill: none; stroke: var(--ink); stroke-width: 2.2;
+                 stroke-linecap: round; stroke-linejoin: round; }
+    text { fill: var(--ink); stroke: none; text-anchor: middle;
+           font-family: 'xkcd Script', 'Comic Sans MS', 'Comic Neue', 'Segoe Print', cursive; }
+    .small { font-size: 12.5px; }
+    .tiny  { font-size: 11.5px; }
+    .accent { fill: var(--accent); }
+    .thin  { stroke-width: 1.6; }
+  </style>
+
+  <!-- == radio tower ================================================== -->
+  <path d="M 56 215 C 60 187, 64 153, 69 117"/>
+  <path d="M 84 215 C 80 185, 76 152, 71 117"/>
+  <path d="M 59 193 C 66 196, 74 195, 81 193"/>
+  <path d="M 61 171 C 67 174, 73 173, 79 170"/>
+  <path d="M 63 149 C 68 152, 72 151, 77 148"/>
+  <path d="M 59 193 L 79 170 M 81 193 L 61 171"/>
+  <path d="M 70 117 C 69 111, 70 106, 70 101"/>
+  <path d="M 84 107 C 91 112, 92 121, 85 127"/>
+  <path d="M 94 99 C 105 108, 106 123, 95 133"/>
+  <path d="M 56 107 C 49 112, 48 121, 55 127"/>
+  <path d="M 46 99 C 35 108, 34 123, 45 133"/>
+  <text x="70" y="242" class="accent" font-size="17">95bFM</text>
+  <text x="70" y="261" class="small">Auckland</text>
+
+  <!-- arrow: antenna -> ffmpeg (up-slanted, signal from the mast top) -->
+  <path d="M 114 120 C 135 112, 153 99, 174 87"/>
+  <path d="M 163 88 C 167 87, 172 86, 176 86 C 173 90, 170 93, 168 97"/>
+  <text x="136" y="133" class="small">mp3 256k</text>
+
+  <!-- == NUC outer box ================================================ -->
+  <path d="M 172 15 C 225 8, 300 18, 350 12
+           C 357 92, 349 184, 354 259
+           C 297 266, 224 256, 173 263
+           C 166 180, 175 94, 169 16 Z"/>
+  <text x="261" y="38" font-size="18">NUC</text>
+
+  <!-- ffmpeg sub-box: one long-running stream -->
+  <path d="M 192 51 C 235 46, 295 54, 333 49
+           C 337 67, 332 87, 335 101
+           C 292 106, 233 99, 192 104
+           C 188 85, 193 66, 190 51 Z" class="thin"/>
+  <text x="262" y="72" font-size="14">ffmpeg (podman)</text>
+  <text x="262" y="92" class="tiny">streams 24/7</text>
+
+  <!-- arrow: ffmpeg -> chunk files -->
+  <path d="M 262 109 C 261 116, 263 124, 262 131"/>
+  <path d="M 257 124 C 259 127, 261 129, 262 132 C 263 129, 265 126, 267 124"/>
+
+  <!-- chunk files (page + page-behind hint) -->
+  <path d="M 256 132 C 266 130, 276 133, 288 131 C 290 144, 288 160, 290 173" class="thin"/>
+  <path d="M 250 138 C 261 136, 273 139, 282 137
+           C 284 151, 282 168, 284 180
+           C 272 182, 259 180, 251 182
+           C 249 167, 251 152, 250 138 Z" class="thin"/>
+  <path d="M 257 149 C 263 148, 270 150, 276 149" class="thin"/>
+  <path d="M 257 158 C 263 157, 270 159, 276 158" class="thin"/>
+  <path d="M 257 167 C 263 166, 270 168, 276 167" class="thin"/>
+  <text x="315" y="152" class="tiny">data/</text>
+  <text x="315" y="167" class="tiny">chunks/</text>
+
+  <!-- arrow: chunk files -> upload.sh -->
+  <path d="M 266 186 C 265 192, 267 196, 266 202"/>
+  <path d="M 261 195 C 263 198, 265 200, 266 203 C 267 200, 269 197, 271 195"/>
+
+  <!-- upload.sh sub-box: the actual loop -->
+  <path d="M 192 208 C 232 203, 296 211, 333 206
+           C 337 223, 332 241, 335 253
+           C 294 258, 232 251, 192 256
+           C 188 240, 193 223, 190 208 Z" class="thin"/>
+  <text x="252" y="229" font-size="14">upload.sh</text>
+  <text x="262" y="248" class="tiny">wakes every minute</text>
+  <!-- refresh-circle loop icon -->
+  <path d="M 321 218.5 C 323.5 220, 325 223, 325 226
+           C 325 231, 321 235, 316 235
+           C 311 235, 307 231, 307 226
+           C 307 222.5, 309 219.5, 312 217.7" class="thin"/>
+  <path d="M 307 213 C 309 215, 311 216, 313 217.5 C 310 219, 308 220, 307 222" class="thin"/>
+
+  <!-- arrow: upload.sh -> R2 -->
+  <path d="M 358 230 C 388 224, 418 222, 448 216"/>
+  <path d="M 439 211 C 442 213, 445 215, 448 216 C 444 218, 441 220, 439 223"/>
+  <text x="400" y="247" class="small">aws s3 sync</text>
+
+  <!-- == R2 cloud ===================================================== -->
+  <path d="M 466 232
+           C 448 230, 438 216, 444 203
+           C 437 188, 448 172, 464 173
+           C 468 155, 490 146, 507 154
+           C 519 139, 546 138, 559 151
+           C 578 142, 601 152, 603 168
+           C 621 171, 630 188, 622 201
+           C 631 215, 622 233, 603 234
+           C 558 242, 511 232, 466 232 Z"/>
+  <text x="533" y="177">Cloudflare R2</text>
+  <text x="533" y="199" class="small">chunks/*.mp3</text>
+  <text x="533" y="216" class="small">manifest.json</text>
+  <text x="533" y="231" class="small" opacity=".85">index.html</text>
+
+  <!-- arrow: r2 -> browser -->
+  <path d="M 638 201 C 662 197, 688 203, 712 199"/>
+  <path d="M 703 193 C 707 196, 710 198, 713 199 C 709 201, 706 204, 703 207"/>
+  <text x="675" y="185" class="small">fetch chunk at</text>
+  <text x="675" y="222" class="small">now &#8722; ~19h</text>
+
+  <!-- == browser ====================================================== -->
+  <path d="M 723 158 C 756 151, 820 162, 855 154
+           C 861 183, 853 214, 859 240
+           C 822 248, 758 237, 725 245
+           C 719 214, 727 186, 721 159 Z"/>
+  <path d="M 723 174 C 768 171, 813 176, 857 173"/>
+  <path d="M 733 165 C 735 164, 736 166, 734 167 C 732 168, 731 166, 733 165"/>
+  <path d="M 745 165 C 747 164, 748 166, 746 167 C 744 168, 743 166, 745 165"/>
+  <path d="M 776 190 C 782 196, 793 203, 802 208 C 794 214, 783 221, 777 226 C 776 214, 777 202, 776 190 Z"/>
+  <text x="790" y="265" class="small">radio.tim-fan.xyz</text>
+
+  <!-- == punchline ==================================================== -->
+  <text x="440" y="336" font-size="16">NZ Monday 9am plays at your Monday 9am</text>
+  <path d="M 352 344 C 388 340, 428 346, 468 342 C 494 345, 517 341, 532 343"/>
+</svg>

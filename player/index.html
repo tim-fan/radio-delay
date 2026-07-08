@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>95bFM — time-shifted</title>
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f4f1ea; color: #26221b;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #16130e; color: #eae4d8; }
+    .card { background: #201c15; box-shadow: 0 2px 16px rgba(0,0,0,.5); }
+    button { background: #eae4d8; color: #16130e; }
+    .dim { color: #9a927f; }
+  }
+  .card {
+    background: #fff; border-radius: 16px; padding: 2rem 2.5rem;
+    box-shadow: 0 2px 16px rgba(0,0,0,.08);
+    max-width: 26rem; width: calc(100vw - 2rem); text-align: center;
+  }
+  h1 { font-size: 1.15rem; margin: 0 0 .25rem; letter-spacing: .02em; }
+  .logo { width: 44px; height: 44px; border-radius: 9px; display: block; margin: 0 auto .6rem; }
+  .dim { color: #7a725f; font-size: .85rem; margin: 0; }
+  #nztime { font-size: 2.2rem; font-variant-numeric: tabular-nums; margin: 1.2rem 0 .2rem; }
+  #nzdate { font-size: .95rem; margin-bottom: 1.4rem; }
+  button {
+    font: inherit; font-size: 1.05rem; border: 0; border-radius: 999px;
+    padding: .7rem 2.2rem; cursor: pointer; background: #26221b; color: #f4f1ea;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  #vol { width: 70%; margin-top: 1.2rem; accent-color: currentColor; }
+  #status { min-height: 1.4em; font-size: .85rem; margin-top: 1rem; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main class="card">
+  <img class="logo" src="icon.png" alt="95bFM logo">
+  <h1>95bFM &mdash; time-shifted</h1>
+  <p class="dim">Playing stream from</p>
+  <div id="nztime">--:--</div>
+  <div id="nzdate" class="dim"></div>
+  <button id="btn" disabled>Loading&hellip;</button>
+  <br>
+  <input type="range" id="vol" min="0" max="1" step="0.01" value="1" aria-label="Volume">
+  <div id="status" class="dim"></div>
+  <p class="dim" id="delayinfo"></p>
+  <p class="dim">the real thing, live: <a href="https://95bfm.com/" rel="noopener">95bfm.com</a></p>
+</main>
+
+<script>
+'use strict';
+
+const NZ_TZ = 'Pacific/Auckland';
+const CHUNK_RE = /^chunk_(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z\.mp3$/;
+const MANIFEST_REFRESH_MS = 120000;
+
+// ?delayMinutes=N overrides the timezone-derived delay (0 = near-live).
+// Handy for testing the pipeline before a full day of archive exists.
+const qs = new URLSearchParams(location.search);
+const delayOverrideMin = qs.has('delayMinutes') ? Number(qs.get('delayMinutes')) : null;
+
+const $ = id => document.getElementById(id);
+const audio = new Audio();
+audio.preload = 'auto';
+
+let manifest = [];       // [{name, start(ms UTC)}] sorted ascending
+let chunkSeconds = 300;
+let playing = false;
+let currentChunk = null;
+let preloaded = null;    // {name, blobUrl}
+
+/* ---------- time math ---------- */
+
+// Minutes east of UTC for `tz` at instant `d`, via Intl (DST-correct).
+function tzOffsetMin(tz, d) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+  const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+  return (asUTC - d.getTime()) / 60000;
+}
+
+// How far behind live we play: NZ offset minus local offset.
+function delayMs() {
+  if (delayOverrideMin !== null) return delayOverrideMin * 60000;
+  const now = new Date();
+  return Math.max(0, (tzOffsetMin(NZ_TZ, now) + now.getTimezoneOffset()) * 60000);
+}
+
+/* ---------- manifest ---------- */
+
+function parseChunk(name) {
+  const m = CHUNK_RE.exec(name);
+  if (!m) return null;
+  return { name, start: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) };
+}
+
+async function loadManifest() {
+  const r = await fetch('manifest.json', { cache: 'no-store' });
+  if (!r.ok) throw new Error('manifest fetch failed: ' + r.status);
+  const j = await r.json();
+  chunkSeconds = j.chunkSeconds || 300;
+  manifest = (j.chunks || []).map(parseChunk).filter(Boolean)
+    .sort((a, b) => a.start - b.start);
+}
+
+// Chunk covering `targetMs`, or the first one after it (gap in recording).
+function findChunk(targetMs) {
+  let covering = null;
+  for (const c of manifest) {
+    if (c.start <= targetMs) covering = c; else break;
+  }
+  if (covering && targetMs < covering.start + (chunkSeconds + 2) * 1000) {
+    return { chunk: covering, offset: (targetMs - covering.start) / 1000, skipped: false };
+  }
+  // target predates the archive or falls in a recording gap
+  const next = manifest.find(c => c.start > targetMs);
+  return next ? { chunk: next, offset: 0, skipped: true } : null;
+}
+
+/* ---------- playback ---------- */
+
+function releasePreload() {
+  if (preloaded) { URL.revokeObjectURL(preloaded.blobUrl); preloaded = null; }
+}
+
+function playChunk(chunk, offsetSec) {
+  currentChunk = chunk;
+  audio.src = (preloaded && preloaded.name === chunk.name)
+    ? preloaded.blobUrl : 'chunks/' + chunk.name;
+  return new Promise((resolve, reject) => {
+    audio.onloadedmetadata = () => {
+      if (offsetSec > 0.5 && offsetSec < audio.duration) audio.currentTime = offsetSec;
+      audio.play().then(resolve, reject);
+    };
+    audio.onerror = () => reject(new Error('failed to load ' + chunk.name));
+  });
+}
+
+// Pick the chunk for "now minus delay" and play it. On a bad chunk
+// (pruned, gap, corrupt) step forward and try the next few.
+async function playTarget() {
+  if (!playing) return;
+  let target = Date.now() - delayMs();
+  for (let tries = 0; tries < 5; tries++) {
+    const sel = findChunk(target);
+    if (!sel) {
+      setStatus('Nothing recorded for this time yet — the archive is still filling.');
+      stopPlayback();
+      return;
+    }
+    try {
+      await playChunk(sel.chunk, sel.offset);
+      setStatus(sel.skipped
+        ? "That time isn't in the archive (yet) — playing the closest available."
+        : '');
+      return;
+    } catch (e) {
+      releasePreload();
+      target = sel.chunk.start + chunkSeconds * 1000;
+    }
+  }
+  setStatus('Playback failed — try again in a minute.');
+  stopPlayback();
+}
+
+async function preloadNext() {
+  if (!currentChunk) return;
+  const next = manifest.find(c => c.start > currentChunk.start);
+  if (!next || (preloaded && preloaded.name === next.name)) return;
+  try {
+    const r = await fetch('chunks/' + next.name);
+    if (!r.ok) return;
+    const blob = await r.blob();
+    releasePreload();
+    preloaded = { name: next.name, blobUrl: URL.createObjectURL(blob) };
+  } catch { /* preload is best-effort */ }
+}
+
+// On chunk end: if the archive covers the wall-clock target, snap to it
+// (self-corrects drift). If not (archive still filling, or near the live
+// edge), continue sequentially; when there's nothing newer yet, poll.
+let retryTimer = null;
+async function advance() {
+  if (!playing) return;
+  const sel = findChunk(Date.now() - delayMs());
+  if (sel && !sel.skipped) return playTarget();
+  const next = currentChunk && manifest.find(c => c.start > currentChunk.start);
+  if (next) {
+    try {
+      await playChunk(next, 0);
+      setStatus("That time isn't in the archive (yet) — playing the closest available.");
+      return;
+    } catch (e) { releasePreload(); }
+  }
+  setStatus('Caught up with the recorder — waiting for the next chunk…');
+  await loadManifest().catch(() => {});
+  if (playing) retryTimer = setTimeout(advance, 15000);
+}
+audio.onended = () => advance();
+audio.ontimeupdate = () => {
+  if (playing && audio.duration && audio.duration - audio.currentTime < 20) preloadNext();
+};
+
+function startPlayback() {
+  playing = true;
+  $('btn').textContent = '■ Stop';
+  playTarget();
+}
+function stopPlayback() {
+  playing = false;
+  clearTimeout(retryTimer);
+  audio.pause();
+  audio.removeAttribute('src');
+  releasePreload();
+  currentChunk = null;
+  $('btn').textContent = '▶ Play';
+}
+
+/* ---------- UI ---------- */
+
+function setStatus(msg) { $('status').textContent = msg; }
+
+function tick() {
+  // While playing, show the NZ wall-clock of what's actually coming out of
+  // the speaker; otherwise show what would play if you hit Play now.
+  const t = (playing && currentChunk && audio.currentTime > 0)
+    ? currentChunk.start + audio.currentTime * 1000
+    : Date.now() - delayMs();
+  const d = new Date(t);
+  $('nztime').textContent = new Intl.DateTimeFormat('en-NZ', {
+    timeZone: NZ_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    timeZoneName: 'short',   // appends NZST / NZDT as appropriate
+  }).format(d);
+  $('nzdate').textContent = new Intl.DateTimeFormat('en-NZ', {
+    timeZone: NZ_TZ, weekday: 'long', day: 'numeric', month: 'long',
+  }).format(d);
+  // Report the delay of what's actually playing; note the target when the
+  // archive hasn't reached it yet.
+  const fmtDur = m => Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+  const targetMin = Math.round(delayMs() / 60000);
+  let txt;
+  if (playing && currentChunk && audio.currentTime > 0) {
+    const actualMin = Math.max(0,
+      Math.round((Date.now() - (currentChunk.start + audio.currentTime * 1000)) / 60000));
+    txt = actualMin === 0 ? 'playing near-live' : 'delayed ' + fmtDur(actualMin) + ' behind live';
+    if (Math.abs(actualMin - targetMin) > 2) txt += ' — target ' + fmtDur(targetMin);
+  } else {
+    txt = targetMin === 0 ? 'playing near-live' : 'delayed ' + fmtDur(targetMin) + ' behind live';
+  }
+  $('delayinfo').textContent = txt;
+}
+
+$('btn').onclick = () => {
+  // play() inside the click handler unlocks audio on mobile Safari
+  audio.play().catch(() => {});
+  playing ? stopPlayback() : startPlayback();
+};
+$('vol').oninput = e => { audio.volume = +e.target.value; };
+
+(async () => {
+  tick();
+  setInterval(tick, 1000);
+  try {
+    await loadManifest();
+    $('btn').disabled = false;
+    $('btn').textContent = '▶ Play';
+  } catch (e) {
+    setStatus('Could not load the chunk index (manifest.json). Is the uploader running?');
+    $('btn').textContent = 'Unavailable';
+  }
+  setInterval(() => loadManifest().catch(() => {}), MANIFEST_REFRESH_MS);
+})();
+</script>
+</body>
+</html>
