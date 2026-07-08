@@ -114,6 +114,27 @@ to the URL to listen near-live and verify the pipeline.
   chunk starts at connect time (not clock-aligned) — also handled by the
   manifest lookup.
 
+## Why not HLS?
+
+There *is* a standard for this shape of problem: **HLS** (HTTP Live
+Streaming, RFC 8216 — and its sibling MPEG-DASH). It works exactly like
+this project does — media cut into segments, listed in a playlist file,
+served as static files, player walks the playlist — just with small
+(2–10 s) segments, an `.m3u8` playlist instead of `manifest.json`, and a
+player library (`hls.js`) instead of ~100 lines of vanilla JS. ffmpeg can
+even emit HLS directly, and its playlists can carry wall-clock timestamps
+(`EXT-X-PROGRAM-DATE-TIME`) with a multi-hour DVR window, which is the
+timeshift feature this project needs.
+
+It wasn't used here because, for a single listener at one fixed delay, the
+bespoke version is less machinery: 288 chunks/day instead of tens of
+thousands of tiny segments, no player dependency, and "seek to 9am" is
+just filename arithmetic. The trade-off: chunk handover uses a plain
+`<audio>` element swap, which can leave a few milliseconds of seam every
+5 minutes, where an HLS player would be sample-accurate gapless. If that
+ever matters, the capture side converts to real HLS with a one-line ffmpeg
+change.
+
 ## Related
 
 Prior art for timezone-shifted radio — same itch, different scratches:
