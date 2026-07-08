@@ -89,15 +89,17 @@ aws --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
     --cache-control max-age=60 --content-type "text/html; charset=utf-8"
 ```
 
-Then open `https://radio.example.com/`. Until ~19–21 h of archive exists the
-player will say nothing is recorded yet for the target time — append
-`?delayMinutes=2` to the URL to listen near-live and verify the pipeline.
+Then open `https://radio.example.com/`. Until the archive reaches back as
+far as your delay (worst case a few minutes shy of 24 h) the player will
+say nothing is recorded yet for the target time — append `?delayMinutes=2`
+to the URL to listen near-live and verify the pipeline.
 
 ## Operational notes
 
-- **Retention**: `RETENTION_HOURS=36` (` .env`) comfortably covers the max
-  ~21 h delay. The uploader prunes R2 itself (R2 lifecycle rules only do
-  whole days), plus keeps `LOCAL_KEEP_HOURS` of local buffer.
+- **Retention**: the delay is always under 24 h (whatever the timezone
+  pair), so `RETENTION_HOURS=36` (`.env`) covers it with margin. The
+  uploader prunes R2 itself (R2 lifecycle rules only do whole days), plus
+  keeps `LOCAL_KEEP_HOURS` of local buffer.
 - **Cost**: 256 kbps ≈ 2.8 GB/day → ~4.2 GB stored at 36 h. Inside R2's
   10 GB free tier; egress via custom domain is free. ~90 k class-A ops/month
   (uploads + once-a-minute manifest), free tier is 1 M.
@@ -121,8 +123,8 @@ Prior art for timezone-shifted radio — same itch, different scratches:
   and re-served as live streams synced to various world timezones.
 - [autopo.st Stream Timeshift](https://www.autopo.st/stream-delay/) — a paid
   service that delays any stream and feeds it back to your own
-  Icecast/Shoutcast server, but caps out at 3 h — well short of the ~19–21 h
-  needed here.
+  Icecast/Shoutcast server, but caps out at 3 h — well short of the
+  up-to-24 h needed here.
 - Expats have been asking for this for years
   ([Tom's Guide](https://forums.tomsguide.com/threads/delaying-internet-radio.309901/),
   [British Expats](https://britishexpats.com/forum/usa-57/there-any-way-listen-bbc-radio-time-shifted-my-time-zone-917134/),
