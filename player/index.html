@@ -39,6 +39,7 @@
   .sliderrow { display: flex; align-items: center; gap: .6rem; margin-top: 1.2rem; }
   .sliderrow input { flex: 1; accent-color: currentColor; }
   .sliderrow span { font-size: .7rem; white-space: nowrap; }
+  #feeddelay { font-size: .78rem; margin-top: .35rem; }
   #status { min-height: 1.4em; font-size: .85rem; margin-top: 1rem; }
   a { color: inherit; }
 </style>
@@ -57,6 +58,7 @@
            aria-label="Playback delay in minutes" style="direction: rtl">
     <span class="dim">live</span>
   </div>
+  <div id="feeddelay" class="dim"></div>
   <div id="status" class="dim"></div>
   <p class="dim" id="delayinfo"></p>
   <p class="dim">the real thing, live: <a href="https://95bfm.com/" rel="noopener">95bfm.com</a></p>
@@ -250,8 +252,9 @@ function setStatus(msg) { $('status').textContent = msg; }
 
 function tick() {
   // While playing, show the NZ wall-clock of what's actually coming out of
-  // the speaker; otherwise show what would play if you hit Play now.
-  const t = (playing && currentChunk && audio.currentTime > 0)
+  // the speaker; while dragging the delay slider, follow the slider so a
+  // specific time can be dialed in; otherwise show what Play would give.
+  const t = (playing && currentChunk && audio.currentTime > 0 && !scrubbing)
     ? currentChunk.start + audio.currentTime * 1000
     : Date.now() - delayMs();
   const d = new Date(t);
@@ -266,6 +269,7 @@ function tick() {
   // archive hasn't reached it yet.
   const fmtDur = m => Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
   const targetMin = Math.round(delayMs() / 60000);
+  $('feeddelay').textContent = 'feed delay: ' + fmtDur(targetMin);
   let txt;
   if (playing && currentChunk && audio.currentTime > 0) {
     const actualMin = Math.max(0,
@@ -284,8 +288,13 @@ $('btn').onclick = () => {
   playing ? stopPlayback() : startPlayback();
 };
 // live readout while dragging; re-attach at the new delay on release
-$('delay').oninput = e => { userDelayMin = +e.target.value; tick(); };
-$('delay').onchange = () => { if (playing) playTarget(); };
+let scrubbing = false;
+$('delay').oninput = e => { scrubbing = true; userDelayMin = +e.target.value; tick(); };
+$('delay').onchange = async () => {
+  if (playing) await playTarget();
+  scrubbing = false;
+  tick();
+};
 
 (async () => {
   userDelayMin = delayOverrideMin !== null ? delayOverrideMin : tzDelayMin();
