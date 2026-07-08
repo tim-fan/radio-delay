@@ -3,6 +3,8 @@
 Continuously records 95bFM (Auckland) and replays it delayed by the
 NZ↔local timezone offset, so NZ Monday 9am plays at *your* Monday 9am.
 
+**▶ Listen: [radio.tim-fan.xyz](https://radio.tim-fan.xyz/)**
+
 > **Note**: all repo contents — code, player, diagram, this README — were
 > generated with Claude Fable 5.
 
@@ -98,3 +100,23 @@ player will say nothing is recorded yet for the target time — append
   skips to the next available chunk. After a restart mid-window, the first
   chunk starts at connect time (not clock-aligned) — also handled by the
   manifest lookup.
+
+## Related
+
+Prior art for timezone-shifted radio — same itch, different scratches:
+
+- [DelayPlayer](https://frisnit.com/delayplayer-radio-4-synced-to-your-timezone/) —
+  the closest spiritual ancestor: BBC Radio 4 kept in a rolling 24 h buffer
+  and re-served as live streams synced to various world timezones.
+- [autopo.st Stream Timeshift](https://www.autopo.st/stream-delay/) — a paid
+  service that delays any stream and feeds it back to your own
+  Icecast/Shoutcast server, but caps out at 3 h — well short of the ~19–21 h
+  needed here.
+- Expats have been asking for this for years
+  ([Tom's Guide](https://forums.tomsguide.com/threads/delaying-internet-radio.309901/),
+  [British Expats](https://britishexpats.com/forum/usa-57/there-any-way-listen-bbc-radio-time-shifted-my-time-zone-917134/),
+  [NextPVR](https://forums.nextpvr.com/showthread.php?tid=64808&page=4)),
+  usually answered with "record it and listen later."
+
+What seems new here: serverless playback straight from object storage, with a
+static page doing the timezone math — nothing runs at listen time.
