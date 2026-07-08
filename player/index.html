@@ -29,7 +29,8 @@
   h1 { font-size: 1.15rem; margin: 0 0 .25rem; letter-spacing: .02em; }
   .logo { width: 44px; height: 44px; border-radius: 9px; display: block; margin: 0 auto .6rem; }
   .dim { color: #7a725f; font-size: .85rem; margin: 0; }
-  #nztime { font-size: 2.2rem; font-variant-numeric: tabular-nums; margin: 1.2rem 0 .2rem; }
+  #fromlabel { margin-top: 1.4rem; }
+  #nztime { font-size: 2.2rem; font-variant-numeric: tabular-nums; margin: .15rem 0 .2rem; }
   #nzdate { font-size: .95rem; margin-bottom: 1.4rem; }
   button {
     font: inherit; font-size: 1.05rem; border: 0; border-radius: 999px;
@@ -39,7 +40,10 @@
   .sliderrow { display: flex; align-items: center; gap: .6rem; margin-top: 1.2rem; }
   .sliderrow input { flex: 1; accent-color: currentColor; }
   .sliderrow span { font-size: .7rem; white-space: nowrap; }
-  #feeddelay { font-size: .78rem; margin-top: .35rem; }
+  #feedrow { font-size: .78rem; margin-top: .35rem; }
+  #syncbtn { font: inherit; background: none; border: none; color: inherit;
+             padding: 0; margin-left: .6rem; cursor: pointer;
+             text-decoration: underline dotted; border-radius: 0; }
   #status { min-height: 1.4em; font-size: .85rem; margin-top: 1rem; }
   a { color: inherit; }
 </style>
@@ -48,7 +52,7 @@
 <main class="card">
   <img class="logo" src="icon.png" alt="95bFM logo">
   <h1>95bFM &mdash; time-shifted</h1>
-  <p class="dim">Playing stream from</p>
+  <p class="dim" id="fromlabel">Playing stream from</p>
   <div id="nztime">--:--</div>
   <div id="nzdate" class="dim"></div>
   <button id="btn" disabled>Loading&hellip;</button>
@@ -58,9 +62,8 @@
            aria-label="Playback delay in minutes" style="direction: rtl">
     <span class="dim">live</span>
   </div>
-  <div id="feeddelay" class="dim"></div>
+  <div id="feedrow" class="dim"><span id="feeddelay"></span><button id="syncbtn" hidden>sync to local time</button></div>
   <div id="status" class="dim"></div>
-  <p class="dim" id="delayinfo"></p>
   <p class="dim">the real thing, live: <a href="https://95bfm.com/" rel="noopener">95bfm.com</a></p>
 </main>
 
@@ -265,21 +268,9 @@ function tick() {
   $('nzdate').textContent = new Intl.DateTimeFormat('en-NZ', {
     timeZone: NZ_TZ, weekday: 'long', day: 'numeric', month: 'long',
   }).format(d);
-  // Report the delay of what's actually playing; note the target when the
-  // archive hasn't reached it yet.
   const fmtDur = m => Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
-  const targetMin = Math.round(delayMs() / 60000);
-  $('feeddelay').textContent = 'feed delay: ' + fmtDur(targetMin);
-  let txt;
-  if (playing && currentChunk && audio.currentTime > 0) {
-    const actualMin = Math.max(0,
-      Math.round((Date.now() - (currentChunk.start + audio.currentTime * 1000)) / 60000));
-    txt = actualMin === 0 ? 'playing near-live' : 'delayed ' + fmtDur(actualMin) + ' behind live';
-    if (Math.abs(actualMin - targetMin) > 2) txt += ' — target ' + fmtDur(targetMin);
-  } else {
-    txt = targetMin === 0 ? 'playing near-live' : 'delayed ' + fmtDur(targetMin) + ' behind live';
-  }
-  $('delayinfo').textContent = txt;
+  $('feeddelay').textContent = 'feed delay: ' + fmtDur(Math.round(delayMs() / 60000));
+  $('syncbtn').hidden = userDelayMin === null || userDelayMin === tzDelayMin();
 }
 
 $('btn').onclick = () => {
@@ -293,6 +284,12 @@ $('delay').oninput = e => { scrubbing = true; userDelayMin = +e.target.value; ti
 $('delay').onchange = async () => {
   if (playing) await playTarget();
   scrubbing = false;
+  tick();
+};
+$('syncbtn').onclick = () => {
+  userDelayMin = tzDelayMin();
+  $('delay').value = userDelayMin;
+  if (playing) playTarget();
   tick();
 };
 
