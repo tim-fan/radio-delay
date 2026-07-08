@@ -91,11 +91,16 @@ function tzOffsetMin(tz, d) {
   return (asUTC - d.getTime()) / 60000;
 }
 
-// How far behind live we play: NZ offset minus local offset.
+// How far behind live we play: station offset minus local offset, wrapped
+// into [0, 24h). You always hear the station's clock reading what your
+// clock reads; listeners *ahead* of the station hear yesterday's broadcast
+// (e.g. NZ listening to a US station: US Tuesday 9am at NZ Wednesday 9am).
 function delayMs() {
   if (delayOverrideMin !== null) return delayOverrideMin * 60000;
   const now = new Date();
-  return Math.max(0, (tzOffsetMin(NZ_TZ, now) + now.getTimezoneOffset()) * 60000);
+  const raw = (tzOffsetMin(NZ_TZ, now) + now.getTimezoneOffset()) * 60000;
+  const day = 24 * 3600 * 1000;
+  return ((raw % day) + day) % day;
 }
 
 /* ---------- manifest ---------- */

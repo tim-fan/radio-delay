@@ -26,8 +26,11 @@ Key design points:
   start times are predictable; the manifest handles gaps and restarts.
 - **The player is manifest-driven**: it fetches `manifest.json`, picks the
   chunk covering `now − delay`, seeks into it, and preloads the next chunk
-  for near-gapless playback. Delay = NZ UTC-offset − local UTC-offset,
-  computed live via `Intl` (DST-correct on both ends).
+  for near-gapless playback. Delay = (station UTC-offset − local UTC-offset)
+  wrapped into [0, 24h), computed live via `Intl` (DST-correct on both
+  ends). The wrap means you always hear the station at your own wall-clock
+  time; if the station's timezone is *behind* yours, that's yesterday's
+  broadcast (NZ hearing a US station's Tuesday 9am at NZ Wednesday 9am).
 
 ## Repo layout
 
