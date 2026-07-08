@@ -36,6 +36,9 @@
     padding: .7rem 2.2rem; cursor: pointer; background: #26221b; color: #f4f1ea;
   }
   button:disabled { opacity: .5; cursor: default; }
+  .sliderrow { display: flex; align-items: center; gap: .6rem; margin-top: 1.2rem; }
+  .sliderrow input { flex: 1; accent-color: currentColor; }
+  .sliderrow span { font-size: .7rem; white-space: nowrap; }
   #status { min-height: 1.4em; font-size: .85rem; margin-top: 1rem; }
   a { color: inherit; }
 </style>
@@ -48,6 +51,12 @@
   <div id="nztime">--:--</div>
   <div id="nzdate" class="dim"></div>
   <button id="btn" disabled>Loading&hellip;</button>
+  <div class="sliderrow">
+    <span class="dim">&minus;24h</span>
+    <input type="range" id="delay" min="0" max="1440" step="5" value="1440"
+           aria-label="Playback delay in minutes" style="direction: rtl">
+    <span class="dim">live</span>
+  </div>
   <div id="status" class="dim"></div>
   <p class="dim" id="delayinfo"></p>
   <p class="dim">the real thing, live: <a href="https://95bfm.com/" rel="noopener">95bfm.com</a></p>
@@ -60,8 +69,8 @@ const NZ_TZ = 'Pacific/Auckland';
 const CHUNK_RE = /^chunk_(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z\.mp3$/;
 const MANIFEST_REFRESH_MS = 120000;
 
-// ?delayMinutes=N overrides the timezone-derived delay (0 = near-live).
-// Handy for testing the pipeline before a full day of archive exists.
+// ?delayMinutes=N seeds the delay slider instead of the timezone-derived
+// value (0 = near-live). Handy for testing with a young archive.
 const qs = new URLSearchParams(location.search);
 const delayOverrideMin = qs.has('delayMinutes') ? Number(qs.get('delayMinutes')) : null;
 
@@ -88,16 +97,21 @@ function tzOffsetMin(tz, d) {
   return (asUTC - d.getTime()) / 60000;
 }
 
-// How far behind live we play: station offset minus local offset, wrapped
+// The "same wall clock" delay: station offset minus local offset, wrapped
 // into [0, 24h). You always hear the station's clock reading what your
 // clock reads; listeners *ahead* of the station hear yesterday's broadcast
 // (e.g. NZ listening to a US station: US Tuesday 9am at NZ Wednesday 9am).
-function delayMs() {
-  if (delayOverrideMin !== null) return delayOverrideMin * 60000;
+function tzDelayMin() {
   const now = new Date();
-  const raw = (tzOffsetMin(NZ_TZ, now) + now.getTimezoneOffset()) * 60000;
-  const day = 24 * 3600 * 1000;
-  return ((raw % day) + day) % day;
+  const raw = tzOffsetMin(NZ_TZ, now) + now.getTimezoneOffset();
+  return ((raw % 1440) + 1440) % 1440;
+}
+
+// The actual playback delay is whatever the slider says; it's seeded at
+// load with the timezone-derived value (or ?delayMinutes=N).
+let userDelayMin = null;
+function delayMs() {
+  return (userDelayMin !== null ? userDelayMin : tzDelayMin()) * 60000;
 }
 
 /* ---------- manifest ---------- */
@@ -269,8 +283,13 @@ $('btn').onclick = () => {
   audio.play().catch(() => {});
   playing ? stopPlayback() : startPlayback();
 };
+// live readout while dragging; re-attach at the new delay on release
+$('delay').oninput = e => { userDelayMin = +e.target.value; tick(); };
+$('delay').onchange = () => { if (playing) playTarget(); };
 
 (async () => {
+  userDelayMin = delayOverrideMin !== null ? delayOverrideMin : tzDelayMin();
+  $('delay').value = Math.max(0, Math.min(1440, userDelayMin));
   tick();
   setInterval(tick, 1000);
   try {
