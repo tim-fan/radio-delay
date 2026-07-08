@@ -37,7 +37,13 @@
     padding: .7rem 2.2rem; cursor: pointer; background: #26221b; color: #f4f1ea;
   }
   button:disabled { opacity: .5; cursor: default; }
-  .sliderrow { display: flex; align-items: center; gap: .6rem; margin-top: 1.2rem; }
+  #delaybox { margin-top: 1.1rem; }
+  #delaybox summary { list-style: none; cursor: pointer; font-size: .75rem;
+                      opacity: .75; user-select: none; }
+  #delaybox summary::-webkit-details-marker { display: none; }
+  #delaybox summary::after { content: " \25BE"; }
+  #delaybox[open] summary::after { content: " \25B4"; }
+  .sliderrow { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; }
   .sliderrow input { flex: 1; accent-color: currentColor; }
   .sliderrow span { font-size: .7rem; white-space: nowrap; }
   #feedrow { font-size: .78rem; margin-top: .35rem; }
@@ -56,13 +62,16 @@
   <div id="nztime">--:--</div>
   <div id="nzdate" class="dim"></div>
   <button id="btn" disabled>Loading&hellip;</button>
-  <div class="sliderrow">
-    <span class="dim">&minus;24h</span>
-    <input type="range" id="delay" min="0" max="1440" step="5" value="1440"
-           aria-label="Playback delay in minutes" style="direction: rtl">
-    <span class="dim">live</span>
-  </div>
-  <div id="feedrow" class="dim"><span id="feeddelay"></span><button id="syncbtn" hidden>sync to local time</button></div>
+  <details id="delaybox">
+    <summary class="dim">delay control</summary>
+    <div class="sliderrow">
+      <span class="dim">&minus;24h</span>
+      <input type="range" id="delay" min="0" max="1440" step="5" value="1440"
+             aria-label="Playback delay in minutes" style="direction: rtl">
+      <span class="dim">live</span>
+    </div>
+    <div id="feedrow" class="dim"><span id="feeddelay"></span><button id="syncbtn" hidden>sync to local time</button></div>
+  </details>
   <div id="status" class="dim"></div>
   <p class="dim">the real thing, live: <a href="https://95bfm.com/" rel="noopener">95bfm.com</a></p>
 </main>
