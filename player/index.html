@@ -46,6 +46,9 @@
   .sliderrow { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; }
   .sliderrow input { flex: 1; accent-color: currentColor; }
   .sliderrow span { font-size: .7rem; white-space: nowrap; }
+  #health { flex: 1; height: 12px; min-width: 0; border-radius: 6px; }
+  .sliderrow + .sliderrow { margin-top: .5rem; }
+  #healthcap { font-size: .7rem; margin-top: .15rem; }
   #feedrow { font-size: .78rem; margin-top: .35rem; }
   #syncbtn { font: inherit; background: none; border: none; color: inherit;
              padding: 0; margin-left: .6rem; cursor: pointer;
@@ -74,6 +77,12 @@
              aria-label="Playback delay in minutes" style="direction: rtl">
       <span class="dim">live</span>
     </div>
+    <div class="sliderrow">
+      <span class="dim" style="visibility:hidden">&minus;24h</span>
+      <canvas id="health" aria-label="Feed health: green where audio is available, red where missing"></canvas>
+      <span class="dim" style="visibility:hidden">live</span>
+    </div>
+    <div id="healthcap" class="dim">feed health</div>
     <div id="feedrow" class="dim"><span id="feeddelay"></span><button id="syncbtn" hidden>sync to local time</button></div>
   </details>
   <div id="status" class="dim"></div>
@@ -135,10 +144,14 @@ function delayMs() {
 
 /* ---------- manifest ---------- */
 
-function parseChunk(name) {
+function parseChunk(entry) {
+  // manifest entries are {n: name, s: bytes}; plain strings accepted for
+  // manifests written by the older uploader (no size → assume full-length)
+  const name = typeof entry === 'string' ? entry : entry.n;
+  const size = typeof entry === 'string' ? null : entry.s;
   const m = CHUNK_RE.exec(name);
   if (!m) return null;
-  return { name, start: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) };
+  return { name, size, start: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) };
 }
 
 async function loadManifest() {
@@ -281,6 +294,41 @@ function stopPlayback() {
 
 function setStatus(msg) { $('status').textContent = msg; }
 
+// Paint the last 24h onto the health bar: green where chunk audio exists,
+// red where it's missing (no chunk, or a chunk truncated by a stream
+// drop). Aligned with the delay slider: live at the right, −24h left.
+function drawHealth() {
+  const cv = $('health');
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;                                    // panel is collapsed
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const now = Date.now(), day = 86400000, t0 = now - day;
+  ctx.fillStyle = dark ? '#8a3d35' : '#d98a80';
+  ctx.fillRect(0, 0, w, h);
+  // the largest chunk is a full window — that calibrates bytes/second,
+  // so each chunk's size tells us how much time it really covers
+  let maxBytes = 0;
+  for (const c of manifest) if (c.size > maxBytes) maxBytes = c.size;
+  const bps = maxBytes / chunkSeconds;
+  ctx.fillStyle = dark ? '#4d9d68' : '#5fae78';
+  for (const c of manifest) {
+    const durSec = (c.size && bps) ? Math.min(c.size / bps, chunkSeconds) : chunkSeconds;
+    const a = Math.max(c.start, t0);
+    const b = Math.min(c.start + durSec * 1000, now);
+    if (b > a) ctx.fillRect((a - t0) / day * w, 0, (b - a) / day * w, h);
+  }
+  // playhead: where we're listening (or where the slider points)
+  const t = (playing && currentChunk && audio.currentTime > 0 && !scrubbing)
+    ? currentChunk.start + audio.currentTime * 1000
+    : now - delayMs();
+  ctx.fillStyle = getComputedStyle(document.body).color;
+  ctx.fillRect(Math.max(1, Math.min(w - 1, (t - t0) / day * w)) - 1, 0, 2, h);
+}
+
 function tick() {
   // While playing, show the NZ wall-clock of what's actually coming out of
   // the speaker; while dragging the delay slider, follow the slider so a
@@ -299,6 +347,7 @@ function tick() {
   const fmtDur = m => Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
   $('feeddelay').textContent = 'feed delay: ' + fmtDur(Math.round(delayMs() / 60000));
   $('syncbtn').hidden = userDelayMin === null || userDelayMin === tzDelayMin();
+  drawHealth();
 }
 
 $('btn').onclick = () => {

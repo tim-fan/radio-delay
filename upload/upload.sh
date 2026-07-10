@@ -68,11 +68,15 @@ pass() {
 
     # 4. Regenerate manifest from what is actually in the bucket now.
     if r2 s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix 'chunks/chunk_' \
-            --query 'Contents[].Key' --output json \
+            --query 'Contents[].{n: Key, s: Size}' --output json \
         | CHUNK_SECONDS="$CHUNK_SECONDS" python3 -c '
 import json, os, sys, time
-keys = json.load(sys.stdin) or []
-chunks = sorted(k.split("/", 1)[1] for k in keys if k.endswith(".mp3"))
+items = json.load(sys.stdin) or []
+# n = chunk filename, s = bytes; size reveals truncated chunks (CBR stream)
+chunks = sorted(
+    ({"n": it["n"].split("/", 1)[1], "s": it["s"]}
+     for it in items if it["n"].endswith(".mp3")),
+    key=lambda d: d["n"])
 print(json.dumps({
     "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     "chunkSeconds": int(os.environ["CHUNK_SECONDS"]),
