@@ -46,9 +46,27 @@
   #delaybox summary::after { content: " \25BE"; }
   #delaybox[open] summary::after { content: " \25B4"; }
   .sliderrow { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; }
-  .sliderrow input { flex: 1; accent-color: currentColor; }
+  /* explicit 16px thumb so the canvas can be inset to match the thumb
+     center's travel exactly (native thumb sizes vary per browser) */
+  .sliderrow input {
+    flex: 1; min-width: 0; -webkit-appearance: none; appearance: none;
+    height: 18px; background: transparent; margin: 0;
+  }
+  #delay::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: rgba(38,34,27,.25); }
+  #delay::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px;
+    border-radius: 50%; background: #26221b; margin-top: -6px; }
+  #delay::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(38,34,27,.25); }
+  #delay::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: #26221b; }
+  @media (prefers-color-scheme: dark) {
+    #delay::-webkit-slider-runnable-track { background: rgba(234,228,216,.3); }
+    #delay::-webkit-slider-thumb { background: #eae4d8; }
+    #delay::-moz-range-track { background: rgba(234,228,216,.3); }
+    #delay::-moz-range-thumb { background: #eae4d8; }
+  }
   .sliderrow span { font-size: .7rem; white-space: nowrap; }
-  #health { flex: 1; height: 12px; min-width: 0; border-radius: 6px; }
+  /* 8px side margins = half the slider thumb, so canvas x aligns with
+     the thumb center's travel range */
+  #health { flex: 1; height: 12px; min-width: 0; border-radius: 6px; margin: 0 8px; }
   .sliderrow + .sliderrow { margin-top: .5rem; }
   #healthcap { font-size: .7rem; margin-top: .15rem; }
   #feedrow { font-size: .78rem; margin-top: .35rem; }
