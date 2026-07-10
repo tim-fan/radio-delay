@@ -176,6 +176,13 @@ function playChunk(chunk, offsetSec) {
     ? preloaded.blobUrl : 'chunks/' + chunk.name;
   return new Promise((resolve, reject) => {
     audio.onloadedmetadata = () => {
+      // A chunk truncated by a stream drop is shorter than its nominal
+      // 5-minute window; if the requested offset is past the real end,
+      // reject so the caller moves on instead of replaying from 0.
+      if (isFinite(audio.duration) && offsetSec >= audio.duration - 1) {
+        reject(new Error('chunk shorter than requested offset: ' + chunk.name));
+        return;
+      }
       if (offsetSec > 0.5 && offsetSec < audio.duration) audio.currentTime = offsetSec;
       audio.play().then(resolve, reject);
     };
@@ -203,7 +210,10 @@ async function playTarget() {
       return;
     } catch (e) {
       releasePreload();
-      target = sel.chunk.start + chunkSeconds * 1000;
+      // step to the next chunk that actually exists, not the nominal
+      // window end — after stream drops chunks start off-grid
+      const next = manifest.find(c => c.start > sel.chunk.start);
+      target = next ? next.start : sel.chunk.start + chunkSeconds * 1000;
     }
   }
   setStatus('Playback failed — try again in a minute.');
@@ -230,7 +240,11 @@ let retryTimer = null;
 async function advance() {
   if (!playing) return;
   const sel = findChunk(Date.now() - delayMs());
-  if (sel && !sel.skipped) return playTarget();
+  // Snap to the wall-clock target unless it maps back onto the chunk that
+  // just finished (it ended early — truncated), which would loop it.
+  if (sel && !sel.skipped && (!currentChunk || sel.chunk.name !== currentChunk.name)) {
+    return playTarget();
+  }
   const next = currentChunk && manifest.find(c => c.start > currentChunk.start);
   if (next) {
     try {
