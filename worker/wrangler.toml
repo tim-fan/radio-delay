@@ -1,0 +1,16 @@
+# Reference config if deploying with wrangler instead of deploy.sh.
+# Secrets: `wrangler secret put ANALYTICS_TOKEN` (Account Analytics Read).
+name = "radio-analytics"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[[analytics_engine_datasets]]
+binding = "LISTENS"
+dataset = "radio_listens"
+
+[vars]
+ACCOUNT_ID = "set-me"
+
+[[routes]]
+pattern = "radio.tim-fan.xyz/api/*"
+zone_name = "tim-fan.xyz"

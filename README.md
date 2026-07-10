@@ -114,6 +114,26 @@ to the URL to listen near-live and verify the pipeline.
   chunk starts at connect time (not clock-aligned) — also handled by the
   manifest lookup.
 
+## Analytics
+
+Optional, privacy-minimal listener analytics: the player sends a heartbeat
+(random per-pageload id, chosen delay, playback position) to a Cloudflare
+Worker **only while audio plays**; the worker adds the edge-derived country
+code and writes to Workers Analytics Engine (~3 months retention). No
+cookies, no client storage, IPs never stored. `analytics.html` (linked
+from the player) shows who's listening now and where in the NZ day they
+are. Zone-level traffic (requests/bandwidth/uniques) is also visible in
+the Cloudflare dashboard with no setup at all.
+
+Deploying the worker needs an API token (My Profile → API Tokens →
+Custom) with **Workers Scripts:Edit**, **Account Analytics:Read**, and
+**Workers Routes:Edit + Zone:Read** on the zone. Put it in `.env` as
+`CLOUDFLARE_API_TOKEN=…`, then:
+
+```bash
+worker/deploy.sh   # uploads worker, sets secret, routes <domain>/api/*
+```
+
 ## Known issues
 
 **Feed dropouts.** The upstream Icecast server occasionally drops

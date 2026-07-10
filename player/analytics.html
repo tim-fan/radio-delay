@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>95bFM — time-shifted · analytics</title>
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f4f1ea; color: #26221b;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #16130e; color: #eae4d8; }
+    .card { background: #201c15; box-shadow: 0 2px 16px rgba(0,0,0,.5); }
+    .dim { color: #9a927f; }
+    .bar { background: #eae4d8; }
+    .axis { border-color: #9a927f55; }
+  }
+  .card {
+    background: #fff; border-radius: 16px; padding: 2rem 2.5rem;
+    box-shadow: 0 2px 16px rgba(0,0,0,.08);
+    max-width: 26rem; width: calc(100vw - 2rem); text-align: center;
+  }
+  h1 { font-size: 1.05rem; margin: 0 0 1.4rem; letter-spacing: .02em; }
+  .dim { color: #7a725f; font-size: .85rem; }
+  #now { font-size: 3.2rem; font-variant-numeric: tabular-nums; line-height: 1; }
+  #nowlabel { margin-bottom: 1.6rem; }
+  #charttitle { text-align: left; font-size: .78rem; margin-bottom: .4rem; }
+  #chart { display: flex; align-items: flex-end; gap: 2px; height: 90px;
+           border-bottom: 1px solid #7a725f55; }
+  .axis { border-color: #7a725f55; }
+  .bar { flex: 1; min-height: 0; background: #26221b; border-radius: 3px 3px 0 0; }
+  .bar.empty { background: transparent; }
+  #hours { display: flex; font-size: .65rem; margin-top: .25rem; }
+  #hours span { flex: 1; text-align: left; }
+  #countries { margin-top: 1.2rem; min-height: 1.2em; }
+  #status { min-height: 1.4em; margin-top: 1rem; }
+  #privacy { font-size: .7rem; line-height: 1.45; text-align: left;
+             margin-top: 1.6rem; border-top: 1px solid #7a725f33; padding-top: .8rem; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>95bFM time-shift &mdash; analytics</h1>
+
+  <div id="now">&ndash;</div>
+  <div id="nowlabel" class="dim">listening now</div>
+
+  <div id="charttitle" class="dim">what they're listening to (NZ time of day)</div>
+  <div id="chart" aria-label="Listeners by NZ hour of day being played"></div>
+  <div id="hours" class="dim">
+    <span>12am</span><span>6am</span><span>12pm</span><span>6pm</span>
+  </div>
+
+  <div id="countries" class="dim"></div>
+  <div id="status" class="dim"></div>
+
+  <p class="dim"><a href="index.html">&larr; back to the player</a></p>
+
+  <div id="privacy" class="dim">
+    <strong>Privacy</strong> &mdash; the player reports usage only while audio
+    is playing: a random session id (new on every page load &mdash; no cookies,
+    nothing stored on your device), the chosen delay, and the playback
+    position. Your country is derived at Cloudflare's edge when the report
+    arrives; IP addresses are never stored. Data is kept for about three
+    months, in this aggregate form only.
+  </div>
+</main>
+
+<script>
+'use strict';
+const NZ_TZ = 'Pacific/Auckland';
+const $ = id => document.getElementById(id);
+
+const nzHour = new Intl.DateTimeFormat('en-NZ', {
+  timeZone: NZ_TZ, hour: 'numeric', hourCycle: 'h23',
+});
+
+function render(stats) {
+  $('now').textContent = stats.now;
+  $('nowlabel').textContent = stats.now === 1 ? 'person listening now' : 'listening now';
+
+  const bins = new Array(24).fill(0);
+  for (const l of stats.listeners) {
+    if (l.posUtc > 0) bins[+nzHour.format(new Date(l.posUtc)) % 24]++;
+  }
+  const max = Math.max(1, ...bins);
+  $('chart').replaceChildren(...bins.map((n, hr) => {
+    const bar = document.createElement('div');
+    bar.className = 'bar' + (n ? '' : ' empty');
+    bar.style.height = (n / max * 100) + '%';
+    const ampm = hr === 0 ? '12am' : hr < 12 ? hr + 'am' : hr === 12 ? '12pm' : (hr - 12) + 'pm';
+    bar.title = ampm + ' NZT — ' + n + ' listening';
+    return bar;
+  }));
+
+  const byCountry = {};
+  for (const l of stats.listeners) byCountry[l.country] = (byCountry[l.country] || 0) + 1;
+  $('countries').textContent = Object.entries(byCountry)
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, n]) => c + ' ×' + n).join(' · ');
+  $('status').textContent = '';
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('api/stats', { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+  } catch (e) {
+    $('status').textContent = 'analytics backend unreachable (' + e.message + ')';
+  }
+}
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>
