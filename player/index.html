@@ -322,8 +322,13 @@ function tick() {
   const fmtDur = m => Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
   $('feeddelay').textContent = 'feed delay: ' + fmtDur(Math.round(delayMs() / 60000));
   $('syncbtn').hidden = userDelayMin === null || userDelayMin === tzDelayMin();
-  // warn while listening inside an unhealthy chunk, or parked in a gap
-  $('degraded').hidden = !(playing && (!currentChunk || !currentChunk.healthy));
+  // warn whenever the moment we're playing — or would play — lacks a
+  // healthy chunk: listening in one, parked in a gap, or just pointing
+  // the delay control at degraded territory
+  const eff = (playing && currentChunk && !scrubbing)
+    ? currentChunk
+    : (findChunk(Date.now() - delayMs()) || {}).chunk;
+  $('degraded').hidden = !!(eff && eff.healthy);
   drawHealth();
 }
 
