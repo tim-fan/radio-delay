@@ -145,13 +145,21 @@ function delayMs() {
 /* ---------- manifest ---------- */
 
 function parseChunk(entry) {
-  // manifest entries are {n: name, s: bytes}; plain strings accepted for
-  // manifests written by the older uploader (no size → assume full-length)
-  const name = typeof entry === 'string' ? entry : entry.n;
-  const size = typeof entry === 'string' ? null : entry.s;
+  // manifest entries: {n: name, s: bytes, d: measured audio seconds,
+  // c: intended coverage seconds, h: healthy}. d/c/h may be absent
+  // (measured metadata is best-effort); plain-string entries accepted
+  // for manifests written by the oldest uploader.
+  const isStr = typeof entry === 'string';
+  const name = isStr ? entry : entry.n;
   const m = CHUNK_RE.exec(name);
   if (!m) return null;
-  return { name, size, start: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) };
+  return {
+    name,
+    size: isStr ? null : entry.s,
+    dur: isStr || entry.d == null ? null : entry.d,
+    healthy: isStr || entry.h == null ? null : entry.h,
+    start: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]),
+  };
 }
 
 async function loadManifest() {
@@ -309,14 +317,16 @@ function drawHealth() {
   const now = Date.now(), day = 86400000, t0 = now - day;
   ctx.fillStyle = dark ? '#8a3d35' : '#d98a80';
   ctx.fillRect(0, 0, w, h);
-  // the largest chunk is a full window — that calibrates bytes/second,
-  // so each chunk's size tells us how much time it really covers
+  // fallback calibration for chunks without measured duration: the
+  // largest chunk is a full window, which gives us bytes/second
   let maxBytes = 0;
   for (const c of manifest) if (c.size > maxBytes) maxBytes = c.size;
   const bps = maxBytes / chunkSeconds;
   ctx.fillStyle = dark ? '#4d9d68' : '#5fae78';
   for (const c of manifest) {
-    const durSec = (c.size && bps) ? Math.min(c.size / bps, chunkSeconds) : chunkSeconds;
+    const durSec = c.dur != null ? Math.min(c.dur, chunkSeconds)
+      : (c.size && bps) ? Math.min(c.size / bps, chunkSeconds)
+      : chunkSeconds;
     const a = Math.max(c.start, t0);
     const b = Math.min(c.start + durSec * 1000, now);
     if (b > a) ctx.fillRect((a - t0) / day * w, 0, (b - a) / day * w, h);

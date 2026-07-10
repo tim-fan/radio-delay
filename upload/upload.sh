@@ -37,6 +37,10 @@ export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 r2() { aws --endpoint-url "$ENDPOINT" "$@"; }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# per-chunk duration/health metadata, survives local chunk pruning
+DUR_CACHE="${DUR_CACHE:-$(dirname "$CHUNK_DIR")/durations.json}"
+
 TMP_MANIFEST="$(mktemp /tmp/manifest.XXXXXX.json)"
 trap 'rm -f "$TMP_MANIFEST"' EXIT
 
@@ -55,7 +59,13 @@ pass() {
         fi
     fi
 
-    # 1. Upload finished chunks. Files modified in the last 15s are still
+    # 1. Measure the real audio duration of newly completed chunks (exact,
+    #    from MP3 frame headers — no assumed bitrate). Must run before
+    #    upload so the manifest can carry durations for every chunk.
+    python3 "$SCRIPT_DIR/mp3dur.py" "$DUR_CACHE" "$CHUNK_DIR" "$CHUNK_SECONDS" \
+        || log "duration measurement failed"
+
+    # 2. Upload finished chunks. Files modified in the last 15s are still
     #    being written by ffmpeg (mtime updates continuously), so skip them.
     local sync_args=(--exclude '*' --include 'chunk_*.mp3')
     local f
@@ -65,7 +75,7 @@ pass() {
     r2 s3 sync "$CHUNK_DIR" "s3://${R2_BUCKET}/chunks" "${sync_args[@]}" --no-progress \
         || log "upload pass failed; will retry"
 
-    # 2. Prune remote chunks past retention. Filenames encode UTC start time,
+    # 3. Prune remote chunks past retention. Filenames encode UTC start time,
     #    so a lexicographic compare against the cutoff is a time compare.
     local cutoff key
     cutoff="chunks/chunk_$(date -u -d "${RETENTION_HOURS} hours ago" +%Y%m%dT%H%M%S)Z.mp3"
@@ -75,20 +85,29 @@ pass() {
     done < <(r2 s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix 'chunks/chunk_' \
                 --query 'Contents[].Key' --output text | tr '\t' '\n')
 
-    # 3. Prune local buffer.
+    # 4. Prune local buffer.
     find "$CHUNK_DIR" -name 'chunk_*.mp3' -mmin +"$((LOCAL_KEEP_HOURS * 60))" -delete
 
-    # 4. Regenerate manifest from what is actually in the bucket now.
+    # 5. Regenerate manifest from what is actually in the bucket now,
+    #    merging measured metadata: n name, s bytes, d measured audio
+    #    seconds, c intended coverage seconds, h healthy.
     if r2 s3api list-objects-v2 --bucket "$R2_BUCKET" --prefix 'chunks/chunk_' \
             --query 'Contents[].{n: Key, s: Size}' --output json \
-        | CHUNK_SECONDS="$CHUNK_SECONDS" python3 -c '
+        | CHUNK_SECONDS="$CHUNK_SECONDS" DUR_CACHE="$DUR_CACHE" python3 -c '
 import json, os, sys, time
 items = json.load(sys.stdin) or []
-# n = chunk filename, s = bytes; size reveals truncated chunks (CBR stream)
-chunks = sorted(
-    ({"n": it["n"].split("/", 1)[1], "s": it["s"]}
-     for it in items if it["n"].endswith(".mp3")),
-    key=lambda d: d["n"])
+try:
+    meta = json.load(open(os.environ["DUR_CACHE"]))
+except (OSError, ValueError):
+    meta = {}
+chunks = []
+for it in sorted(items, key=lambda d: d["n"]):
+    if not it["n"].endswith(".mp3"):
+        continue
+    name = it["n"].split("/", 1)[1]
+    entry = {"n": name, "s": it["s"]}
+    entry.update(meta.get(name) if isinstance(meta.get(name), dict) else {})
+    chunks.append(entry)
 print(json.dumps({
     "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     "chunkSeconds": int(os.environ["CHUNK_SECONDS"]),
