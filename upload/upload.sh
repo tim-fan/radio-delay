@@ -43,6 +43,18 @@ trap 'rm -f "$TMP_MANIFEST"' EXIT
 log() { echo "$(date -u +%FT%TZ) $*" >&2; }
 
 pass() {
+    # 0. Watchdog: ffmpeg writes to the newest chunk continuously, so a
+    #    stale mtime means capture is wedged (e.g. silently dead socket).
+    #    Kick it; a fresh connect also covers ordinary stream outages.
+    if command -v systemctl >/dev/null && [[ "${WATCHDOG_MINUTES:-10}" != "0" ]]; then
+        local fresh
+        fresh=$(find "$CHUNK_DIR" -name 'chunk_*.mp3' -mmin "-${WATCHDOG_MINUTES:-10}" | head -1)
+        if [[ -z "$fresh" ]]; then
+            log "watchdog: no chunk written in ${WATCHDOG_MINUTES:-10} min — restarting radio-capture"
+            systemctl restart radio-capture || log "watchdog: restart failed"
+        fi
+    fi
+
     # 1. Upload finished chunks. Files modified in the last 15s are still
     #    being written by ffmpeg (mtime updates continuously), so skip them.
     local sync_args=(--exclude '*' --include 'chunk_*.mp3')

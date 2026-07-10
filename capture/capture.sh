@@ -14,7 +14,11 @@ mkdir -p "$CHUNK_DIR"
 # exec so ffmpeg is PID 1 and receives SIGTERM directly (clean segment close
 # on stop). Restarts after crashes/disconnects are systemd's job (Restart=always).
 echo "starting capture of $STREAM_URL (${CHUNK_SECONDS}s chunks)" >&2
+# -rw_timeout: a silently dead TLS connection otherwise blocks read()
+# forever — ffmpeg looks alive but writes nothing, and -reconnect never
+# fires because the socket never errors (observed 2026-07-09, 18h stall)
 exec ffmpeg -hide_banner -loglevel warning -nostdin \
+    -rw_timeout 30000000 \
     -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 30 \
     -i "$STREAM_URL" \
     -map 0:a -c copy \
