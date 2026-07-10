@@ -114,6 +114,32 @@ to the URL to listen near-live and verify the pipeline.
   chunk starts at connect time (not clock-aligned) — also handled by the
   manifest lookup.
 
+## Known issues
+
+**Feed dropouts.** The upstream Icecast server occasionally drops
+connections (observed 2026-07-09: repeated TLS "End of file" errors over a
+~15 min window). ffmpeg reconnects automatically, but each drop leaves its
+mark in the archive:
+
+- the chunk being written is **truncated** — named for a 5-minute window
+  but containing less audio (down to ~1 min observed);
+- the first chunk after a reconnect starts **off-grid** (e.g.
+  `…T192504Z`, not a multiple of 5 min);
+- audio between drop and reconnect is **gone** — nothing re-serves it.
+
+The player is built to tolerate this rather than prevent it: chunk lookup
+goes through the manifest (not filename prediction), seeks past a chunk's
+*actual* duration are rejected rather than restarting it from zero, a
+finished chunk is never re-selected (no replay loops), and playback hops
+to the next chunk that really exists, showing a "playing the closest
+available" note until it's back in sync. The cost to the listener is the
+missing audio itself plus a timing wobble of at most a few minutes around
+the gap.
+
+A captured six-chunk sequence from the 2026-07-09 dropout (healthy →
+truncated → off-grid → healthy) is stashed on the NUC under
+`testdata/dropout-20260709/` for testing alternative handling.
+
 ## Why not HLS?
 
 There *is* a standard for this shape of problem: **HLS** (HTTP Live
