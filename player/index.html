@@ -30,6 +30,8 @@
   .logo { width: 44px; height: 44px; border-radius: 9px; display: block; margin: 0 auto .6rem; }
   .dim { color: #7a725f; font-size: .85rem; margin: 0; }
   #fromlabel { margin-top: 1.4rem; }
+  #degraded { font-size: .8rem; margin-top: .4rem; color: #a85a1e; }
+  @media (prefers-color-scheme: dark) { #degraded { color: #e0954e; } }
   #nztime { font-size: 2.2rem; font-variant-numeric: tabular-nums; margin: .15rem 0 .2rem; }
   #nzdate { font-size: .95rem; margin-bottom: 1.4rem; }
   button {
@@ -68,6 +70,7 @@
   <p class="dim" id="fromlabel">Playing stream from</p>
   <div id="nztime">--:--</div>
   <div id="nzdate" class="dim"></div>
+  <div id="degraded" hidden>&#10071; degraded feed &mdash; playback may be jumpy or broken</div>
   <button id="btn" disabled>Loading&hellip;</button>
   <details id="delaybox">
     <summary class="dim">delay control</summary>
@@ -146,18 +149,14 @@ function delayMs() {
 
 function parseChunk(entry) {
   // manifest entries: {n: name, s: bytes, d: measured audio seconds,
-  // c: intended coverage seconds, h: healthy}. d/c/h may be absent
-  // (measured metadata is best-effort); plain-string entries accepted
-  // for manifests written by the oldest uploader.
-  const isStr = typeof entry === 'string';
-  const name = isStr ? entry : entry.n;
-  const m = CHUNK_RE.exec(name);
+  // c: intended coverage seconds, h: healthy}. A chunk without h is
+  // treated as unhealthy — no inference from size or anything else.
+  const m = CHUNK_RE.exec(entry.n);
   if (!m) return null;
   return {
-    name,
-    size: isStr ? null : entry.s,
-    dur: isStr || entry.d == null ? null : entry.d,
-    healthy: isStr || entry.h == null ? null : entry.h,
+    name: entry.n,
+    cov: entry.c != null ? entry.c : null,
+    healthy: entry.h === true,
     start: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]),
   };
 }
@@ -171,18 +170,17 @@ async function loadManifest() {
     .sort((a, b) => a.start - b.start);
 }
 
-// Chunk covering `targetMs`, or the first one after it (gap in recording).
+// Chunk whose intended coverage includes `targetMs`, or null. No
+// substitutes: if the moment isn't covered, that's the caller's problem.
 function findChunk(targetMs) {
   let covering = null;
   for (const c of manifest) {
     if (c.start <= targetMs) covering = c; else break;
   }
-  if (covering && targetMs < covering.start + (chunkSeconds + 2) * 1000) {
-    return { chunk: covering, offset: (targetMs - covering.start) / 1000, skipped: false };
-  }
-  // target predates the archive or falls in a recording gap
-  const next = manifest.find(c => c.start > targetMs);
-  return next ? { chunk: next, offset: 0, skipped: true } : null;
+  if (!covering) return null;
+  const covSec = covering.cov != null ? covering.cov : chunkSeconds;
+  if (targetMs >= covering.start + (covSec + 2) * 1000) return null;
+  return { chunk: covering, offset: (targetMs - covering.start) / 1000 };
 }
 
 /* ---------- playback ---------- */
@@ -211,34 +209,29 @@ function playChunk(chunk, offsetSec) {
   });
 }
 
-// Pick the chunk for "now minus delay" and play it. On a bad chunk
-// (pruned, gap, corrupt) step forward and try the next few.
+// Play the chunk for "now minus delay". If that exact moment has no
+// playable audio (gap, truncated chunk tail, archive edge), hold here
+// and retry as the clock advances — never jump to a different time;
+// picking another time is the user's job via the delay control.
+let retryTimer = null;
 async function playTarget() {
   if (!playing) return;
-  let target = Date.now() - delayMs();
-  for (let tries = 0; tries < 5; tries++) {
-    const sel = findChunk(target);
-    if (!sel) {
-      setStatus('Nothing recorded for this time yet — the archive is still filling.');
-      stopPlayback();
-      return;
-    }
+  clearTimeout(retryTimer);
+  const sel = findChunk(Date.now() - delayMs());
+  if (sel) {
     try {
       await playChunk(sel.chunk, sel.offset);
-      setStatus(sel.skipped
-        ? "That time isn't in the archive (yet) — playing the closest available."
-        : '');
+      setStatus('');
       return;
     } catch (e) {
       releasePreload();
-      // step to the next chunk that actually exists, not the nominal
-      // window end — after stream drops chunks start off-grid
-      const next = manifest.find(c => c.start > sel.chunk.start);
-      target = next ? next.start : sel.chunk.start + chunkSeconds * 1000;
     }
   }
-  setStatus('Playback failed — try again in a minute.');
-  stopPlayback();
+  currentChunk = null;
+  audio.pause();
+  setStatus('nothing playable at this moment — waiting for the clock to reach audio');
+  loadManifest().catch(() => {});
+  retryTimer = setTimeout(playTarget, 15000);
 }
 
 async function preloadNext() {
@@ -254,31 +247,7 @@ async function preloadNext() {
   } catch { /* preload is best-effort */ }
 }
 
-// On chunk end: if the archive covers the wall-clock target, snap to it
-// (self-corrects drift). If not (archive still filling, or near the live
-// edge), continue sequentially; when there's nothing newer yet, poll.
-let retryTimer = null;
-async function advance() {
-  if (!playing) return;
-  const sel = findChunk(Date.now() - delayMs());
-  // Snap to the wall-clock target unless it maps back onto the chunk that
-  // just finished (it ended early — truncated), which would loop it.
-  if (sel && !sel.skipped && (!currentChunk || sel.chunk.name !== currentChunk.name)) {
-    return playTarget();
-  }
-  const next = currentChunk && manifest.find(c => c.start > currentChunk.start);
-  if (next) {
-    try {
-      await playChunk(next, 0);
-      setStatus("That time isn't in the archive (yet) — playing the closest available.");
-      return;
-    } catch (e) { releasePreload(); }
-  }
-  setStatus('Caught up with the recorder — waiting for the next chunk…');
-  await loadManifest().catch(() => {});
-  if (playing) retryTimer = setTimeout(advance, 15000);
-}
-audio.onended = () => advance();
+audio.onended = () => playTarget();   // recompute from the wall clock
 audio.ontimeupdate = () => {
   if (playing && audio.duration && audio.duration - audio.currentTime < 20) preloadNext();
 };
@@ -317,18 +286,14 @@ function drawHealth() {
   const now = Date.now(), day = 86400000, t0 = now - day;
   ctx.fillStyle = dark ? '#8a3d35' : '#d98a80';
   ctx.fillRect(0, 0, w, h);
-  // fallback calibration for chunks without measured duration: the
-  // largest chunk is a full window, which gives us bytes/second
-  let maxBytes = 0;
-  for (const c of manifest) if (c.size > maxBytes) maxBytes = c.size;
-  const bps = maxBytes / chunkSeconds;
+  // green strictly by the uploader's verdict: healthy chunks paint their
+  // intended coverage; anything else (unhealthy, unmeasured, absent) is red
   ctx.fillStyle = dark ? '#4d9d68' : '#5fae78';
   for (const c of manifest) {
-    const durSec = c.dur != null ? Math.min(c.dur, chunkSeconds)
-      : (c.size && bps) ? Math.min(c.size / bps, chunkSeconds)
-      : chunkSeconds;
+    if (!c.healthy) continue;
+    const covSec = c.cov != null ? c.cov : chunkSeconds;
     const a = Math.max(c.start, t0);
-    const b = Math.min(c.start + durSec * 1000, now);
+    const b = Math.min(c.start + covSec * 1000, now);
     if (b > a) ctx.fillRect((a - t0) / day * w, 0, (b - a) / day * w, h);
   }
   // playhead: where we're listening (or where the slider points)
@@ -357,6 +322,8 @@ function tick() {
   const fmtDur = m => Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
   $('feeddelay').textContent = 'feed delay: ' + fmtDur(Math.round(delayMs() / 60000));
   $('syncbtn').hidden = userDelayMin === null || userDelayMin === tzDelayMin();
+  // warn while listening inside an unhealthy chunk, or parked in a gap
+  $('degraded').hidden = !(playing && (!currentChunk || !currentChunk.healthy));
   drawHealth();
 }
 
