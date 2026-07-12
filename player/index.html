@@ -135,6 +135,7 @@ const audio = new Audio();
 audio.preload = 'auto';
 
 let manifest = [];       // [{name, start(ms UTC)}] sorted ascending
+let manifestReady = false;  // first load finished — until then, don't judge feed health
 let chunkSeconds = 300;
 let playing = false;
 let currentChunk = null;
@@ -374,7 +375,7 @@ function tick() {
   const eff = (playing && currentChunk && !scrubbing)
     ? currentChunk
     : (findChunk(Date.now() - delayMs()) || {}).chunk;
-  $('degraded').hidden = !!(eff && eff.healthy);
+  $('degraded').hidden = !manifestReady || !!(eff && eff.healthy);
   drawHealth();
 }
 
@@ -429,6 +430,7 @@ $('syncbtn').onclick = () => {
     setStatus('Could not load the chunk index (manifest.json). Is the uploader running?');
     $('btn').textContent = 'Unavailable';
   }
+  manifestReady = true;
   setInterval(() => loadManifest().catch(() => {}), MANIFEST_REFRESH_MS);
 })();
 </script>
