@@ -74,18 +74,50 @@ export default {
     if (url.pathname === '/api/history' && req.method === 'GET') {
       // Distinct (hour, session) pairs for 90 days; both views derive
       // from this one result. Days are bucketed in NZ time.
-      const sql = `
-        SELECT DISTINCT intDiv(toUnixTimestamp(timestamp), 3600) AS hr,
-               blob1 AS sid
+      // AE speaks a subset of ClickHouse SQL, so try the aggregated form
+      // first and fall back to a raw query using only constructs the
+      // /api/stats query already proves supported.
+      const aeQuery = async (sql) => {
+        const r = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/analytics_engine/sql`,
+          { method: 'POST', headers: { Authorization: `Bearer ${env.ANALYTICS_TOKEN}` }, body: sql },
+        );
+        const text = await r.text();
+        if (!r.ok) return { ok: false, status: r.status, error: text.slice(0, 500) };
+        return { ok: true, data: JSON.parse(text).data || [] };
+      };
+
+      let pairs; // [epochHour, sid]
+      let q = await aeQuery(`
+        SELECT intDiv(toUnixTimestamp(timestamp), 3600) AS hr, blob1 AS sid, count() AS c
         FROM radio_listens
         WHERE timestamp > NOW() - INTERVAL '90' DAY
-        FORMAT JSON`;
-      const r = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/analytics_engine/sql`,
-        { method: 'POST', headers: { Authorization: `Bearer ${env.ANALYTICS_TOKEN}` }, body: sql },
-      );
-      if (!r.ok) return new Response('query failed: ' + r.status, { status: 502 });
-      const { data } = await r.json();
+        GROUP BY hr, sid
+        FORMAT JSON`);
+      if (q.ok) {
+        pairs = q.data.map((r) => [Number(r.hr), r.sid]);
+      } else {
+        const firstErr = `${q.status}: ${q.error}`;
+        q = await aeQuery(`
+          SELECT toUnixTimestamp(timestamp) AS ts, blob1 AS sid
+          FROM radio_listens
+          WHERE timestamp > NOW() - INTERVAL '90' DAY
+          FORMAT JSON`);
+        if (!q.ok) {
+          return new Response(
+            `history queries failed.\naggregated: ${firstErr}\nraw: ${q.status}: ${q.error}`,
+            { status: 502 },
+          );
+        }
+        const seen = new Set();
+        pairs = [];
+        for (const r of q.data) {
+          const hr = Math.floor(Number(r.ts) / 3600);
+          const key = hr + '|' + r.sid;
+          if (!seen.has(key)) { seen.add(key); pairs.push([hr, r.sid]); }
+        }
+      }
+      const data = pairs.map(([hr, sid]) => ({ hr, sid }));
 
       const nzDay = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit',
