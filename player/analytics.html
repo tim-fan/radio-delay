@@ -30,7 +30,12 @@
   .dim { color: #7a725f; font-size: .85rem; }
   #now { font-size: 3.2rem; font-variant-numeric: tabular-nums; line-height: 1; }
   #nowlabel { margin-bottom: 1.6rem; }
-  #charttitle { text-align: left; font-size: .78rem; margin-bottom: .4rem; }
+  #charttitle, .charttitle { text-align: left; font-size: .78rem; margin-bottom: .4rem; }
+  .charttitle { margin-top: 1.6rem; }
+  .strip { display: flex; align-items: flex-end; gap: 1px; height: 70px;
+           border-bottom: 1px solid #7a725f55; }
+  .ticks { display: flex; font-size: .65rem; margin-top: .25rem; }
+  .ticks span { flex: 1; text-align: left; }
   #chart { display: flex; align-items: flex-end; gap: 2px; height: 90px;
            border-bottom: 1px solid #7a725f55; }
   .axis { border-color: #7a725f55; }
@@ -59,6 +64,15 @@
   </div>
 
   <div id="countries" class="dim"></div>
+
+  <div class="charttitle dim">listeners per hour &mdash; past week</div>
+  <div id="week" class="strip" aria-label="Listeners per hour over the past week"></div>
+  <div id="weekticks" class="ticks dim"></div>
+
+  <div class="charttitle dim">listeners per day &mdash; past 3 months</div>
+  <div id="quarter" class="strip" aria-label="Listeners per day over the past three months"></div>
+  <div id="quarterticks" class="ticks dim"></div>
+
   <div id="status" class="dim"></div>
 
   <p class="dim"><a href="index.html">&larr; back to the player</a></p>
@@ -108,6 +122,63 @@ function render(stats) {
   $('status').textContent = '';
 }
 
+/* ---------- history charts (NZ time) ---------- */
+const nzParts = new Intl.DateTimeFormat('en-NZ', {
+  timeZone: NZ_TZ, weekday: 'short', day: 'numeric', month: 'short', hourCycle: 'h23', hour: 'numeric',
+});
+
+function bars(el, entries, titleFn) {
+  const max = Math.max(1, ...entries.map(e => e[1]));
+  el.replaceChildren(...entries.map(([k, n]) => {
+    const b = document.createElement('div');
+    b.className = 'bar' + (n ? '' : ' empty');
+    b.style.height = Math.max(n ? 4 : 0, n / max * 100) + '%';
+    b.title = titleFn(k, n);
+    return b;
+  }));
+}
+
+function renderHistory(h) {
+  // week view: one slot per hour, from NZ midnight 6 days ago to now
+  const nowHr = Math.floor(Date.now() / 3600000);
+  let midnight = nowHr;
+  while (+new Intl.DateTimeFormat('en-NZ', { timeZone: NZ_TZ, hourCycle: 'h23', hour: 'numeric' })
+    .format(new Date(midnight * 3600000)) !== 0) midnight--;
+  const startHr = midnight - 6 * 24;
+  const byHr = new Map(h.hourly);
+  const week = [];
+  for (let hr = startHr; hr <= nowHr; hr++) week.push([hr, byHr.get(hr) || 0]);
+  bars($('week'), week, (hr, n) => {
+    const p = nzParts.formatToParts(new Date(hr * 3600000))
+      .reduce((o, x) => (o[x.type] = x.value, o), {});
+    return `${p.weekday} ${p.day} ${p.month}, ${p.hour}:00 NZT — ${n}`;
+  });
+  $('weekticks').replaceChildren(...Array.from({ length: 7 }, (_, i) => {
+    const s = document.createElement('span');
+    s.textContent = new Intl.DateTimeFormat('en-NZ', { timeZone: NZ_TZ, weekday: 'short' })
+      .format(new Date((startHr + i * 24 + 12) * 3600000));
+    return s;
+  }));
+
+  // quarter view: one slot per NZ day for the last 90 days
+  const byDay = new Map(h.daily);
+  const days = [];
+  const nzDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: NZ_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  for (let i = 89; i >= 0; i--) {
+    const d = nzDate.format(new Date(Date.now() - i * 86400000));
+    days.push([d, byDay.get(d) || 0]);
+  }
+  bars($('quarter'), days, (d, n) => d + ' — ' + n);
+  $('quarterticks').replaceChildren(...[75, 45, 15].map(back => {
+    const s = document.createElement('span');
+    s.textContent = new Intl.DateTimeFormat('en-NZ', { timeZone: NZ_TZ, month: 'short' })
+      .format(new Date(Date.now() - back * 86400000));
+    return s;
+  }));
+}
+
 async function refresh() {
   try {
     const r = await fetch('api/stats', { cache: 'no-store' });
@@ -117,8 +188,23 @@ async function refresh() {
     $('status').textContent = 'analytics backend unreachable (' + e.message + ')';
   }
 }
+
+async function refreshHistory() {
+  try {
+    const r = await fetch('api/history');
+    if (!r.ok) throw new Error(r.status);
+    renderHistory(await r.json());
+  } catch (e) {
+    $('status').textContent = e.message === '404'
+      ? 'history needs the updated worker (repaste worker.js)'
+      : 'history unavailable (' + e.message + ')';
+  }
+}
+
 refresh();
+refreshHistory();
 setInterval(refresh, 30000);
+setInterval(refreshHistory, 300000);
 </script>
 </body>
 </html>

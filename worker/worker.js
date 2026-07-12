@@ -71,6 +71,42 @@ export default {
       );
     }
 
+    if (url.pathname === '/api/history' && req.method === 'GET') {
+      // Distinct (hour, session) pairs for 90 days; both views derive
+      // from this one result. Days are bucketed in NZ time.
+      const sql = `
+        SELECT DISTINCT intDiv(toUnixTimestamp(timestamp), 3600) AS hr,
+               blob1 AS sid
+        FROM radio_listens
+        WHERE timestamp > NOW() - INTERVAL '90' DAY
+        FORMAT JSON`;
+      const r = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/analytics_engine/sql`,
+        { method: 'POST', headers: { Authorization: `Bearer ${env.ANALYTICS_TOKEN}` }, body: sql },
+      );
+      if (!r.ok) return new Response('query failed: ' + r.status, { status: 502 });
+      const { data } = await r.json();
+
+      const nzDay = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit',
+      });
+      const weekAgoHr = Math.floor(Date.now() / 3600000) - 7 * 24;
+      const hourly = new Map();          // epoch-hour -> listeners
+      const daily = new Map();           // NZ date -> Set of sids
+      for (const row of data || []) {
+        const hr = Number(row.hr);
+        if (hr >= weekAgoHr) hourly.set(hr, (hourly.get(hr) || 0) + 1);
+        const day = nzDay.format(new Date(hr * 3600000));
+        if (!daily.has(day)) daily.set(day, new Set());
+        daily.get(day).add(row.sid);
+      }
+      return Response.json({
+        hourly: [...hourly].sort((a, b) => a[0] - b[0]),
+        daily: [...daily].map(([d, s]) => [d, s.size]).sort(),
+        generated: new Date().toISOString(),
+      }, { headers: { 'cache-control': 'public, max-age=300' } });
+    }
+
     return new Response('not found', { status: 404 });
   },
 };
