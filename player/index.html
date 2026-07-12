@@ -273,19 +273,38 @@ async function preloadNext() {
 }
 
 audio.onended = () => playTarget();   // recompute from the wall clock
+// Preload well ahead: on a locked phone the page may be frozen the moment
+// audio stops, so the chunk handover must be instant blob-to-blob — never
+// a network fetch.
 audio.ontimeupdate = () => {
-  if (playing && audio.duration && audio.duration - audio.currentTime < 20) preloadNext();
+  if (playing && audio.duration && audio.duration - audio.currentTime < 75) preloadNext();
 };
+
+// Register as a proper media app: lockscreen controls, and the OS keeps
+// backgrounded pages with an active media session alive across the
+// between-chunk handover.
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: '95bFM — time-shifted',
+    artist: '95bFM Auckland',
+    artwork: [{ src: 'icon.png', sizes: '144x144', type: 'image/png' }],
+  });
+  navigator.mediaSession.setActionHandler('play', () => { if (!playing) startPlayback(); });
+  navigator.mediaSession.setActionHandler('pause', () => { if (playing) stopPlayback(); });
+  navigator.mediaSession.setActionHandler('stop', () => { if (playing) stopPlayback(); });
+}
 
 function startPlayback() {
   playing = true;
   $('btn').textContent = '■ Stop';
+  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   beat('start');
   playTarget();
 }
 function stopPlayback() {
   beat('stop');
   playing = false;
+  if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
   clearTimeout(retryTimer);
   audio.pause();
   audio.removeAttribute('src');
